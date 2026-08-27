@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: vibe-venue-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: venue
+      POSTGRES_PASSWORD: venue
+      POSTGRES_DB: venue
+    ports:
+      - "5455:5432"
+    volumes:
+      - venue-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U venue -d venue"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  venue-db-data:

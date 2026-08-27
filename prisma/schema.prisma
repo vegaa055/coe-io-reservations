@@ -1,0 +1,165 @@
+// Vibe Venue — College of Engineering reservable rooms
+//
+// Overlap safety note: the "no double-booking" guarantee is NOT enforced here.
+// Prisma has no way to express a PostgreSQL exclusion constraint, so it lives in
+// prisma/migrations/<timestamp>_init/migration.sql as:
+//
+//   EXCLUDE USING gist (room_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&)
+//     WHERE (status IN ('PENDING', 'CONFIRMED'))
+//
+// Never regenerate that migration from `prisma migrate dev --create-only` without
+// re-adding the constraint, or concurrent requests can double-book a room.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomType {
+  MEETING
+  CONFERENCE
+  ADAPTABLE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  DENIED
+}
+
+enum ImageKind {
+  PHOTO
+  PLAN
+}
+
+model Room {
+  id     String   @id @default(cuid())
+  slug   String   @unique
+  number String   @unique
+  name   String
+  type   RoomType
+
+  building String @default("JAG-Ed Center")
+  floor    String @default("B")
+
+  summary     String
+  description String?
+
+  capacity Int
+  widthFt  Int?
+  lengthFt Int?
+
+  /// Shown to users but not bookable yet (prototype rollout, or space under renovation).
+  isBookable Boolean @default(true)
+  /// PENDING -> staff review, instead of instant CONFIRMED.
+  needsApproval Boolean @default(false)
+
+  /// Minutes from local midnight. 420 = 7:00 AM, 1200 = 8:00 PM. Times are America/Phoenix.
+  openMinute  Int   @default(420)
+  closeMinute Int   @default(1200)
+  /// Weekdays open, 0 = Sunday .. 6 = Saturday.
+  openDays    Int[] @default([1, 2, 3, 4, 5])
+
+  minMinutes  Int @default(30)
+  maxMinutes  Int @default(240)
+  /// How far ahead a reservation may be made.
+  advanceDays Int @default(120)
+
+  /// Key into the interactive floor plan (components/floor-plan/geometry.ts).
+  planKey   String?
+  sortOrder Int     @default(0)
+
+  amenities Amenity[]
+  images    RoomImage[]
+  bookings  Booking[]
+  closures  Closure[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@map("rooms")
+}
+
+model Amenity {
+  id       String  @id @default(cuid())
+  key      String  @unique
+  label    String
+  category String  @default("general")
+  rooms    Room[]
+
+  @@map("amenities")
+}
+
+model RoomImage {
+  id        String    @id @default(cuid())
+  roomId    String    @map("room_id")
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String
+  kind      ImageKind @default(PHOTO)
+  sortOrder Int       @default(0)
+
+  @@index([roomId])
+  @@map("room_images")
+}
+
+model Booking {
+  id     String @id @default(cuid())
+  roomId String @map("room_id")
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  /// Half-open interval [startsAt, endsAt): a booking ending at 10:00 does not
+  /// collide with one starting at 10:00.
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  status BookingStatus @default(CONFIRMED)
+
+  title     String
+  purpose   String?
+  attendees Int     @default(1)
+
+  requesterName  String  @map("requester_name")
+  requesterEmail String  @map("requester_email")
+  requesterPhone String? @map("requester_phone")
+  department     String?
+
+  /// Shown to the requester so they can cancel without an account. Prototype-only;
+  /// drop this once SSO lands (see lib/auth.ts).
+  manageToken String @unique @default(cuid()) @map("manage_token")
+
+  cancelledAt   DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason  String?   @map("cancel_reason")
+  staffNote     String?   @map("staff_note")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([roomId, startsAt])
+  @@index([requesterEmail])
+  @@index([status])
+  @@map("bookings")
+}
+
+/// Blackout window — holiday closure, maintenance, a semester-long class block.
+/// A closure with no roomId applies to every room.
+model Closure {
+  id     String  @id @default(cuid())
+  roomId String? @map("room_id")
+  room   Room?   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+  reason   String
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([roomId, startsAt])
+  @@map("closures")
+}

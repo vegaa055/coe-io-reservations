@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/*
+  Palette follows the University of Arizona brand: Arizona Blue #0C234B and
+  Arizona Red #AB0520 as primaries, with Azurite / Sky / Leaf from the secondary
+  palette for state colours.
+*/
+:root {
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f4f6f9;
+  --border: #dfe4ec;
+  --border-strong: #c3ccda;
+
+  --text: #12203a;
+  --text-muted: #5a6779;
+  --text-faint: #8593a6;
+
+  --brand: #0c234b;
+  --brand-hover: #1e5288;
+  --brand-contrast: #ffffff;
+  --accent: #ab0520;
+
+  --free: #2f7d55;
+  --free-soft: #e6f4ec;
+  --busy: #a33a12;
+  --busy-soft: #fbeade;
+  --pending: #8a6100;
+  --pending-soft: #fcf2d9;
+
+  --plan-fill: #f0f3f8;
+  --plan-line: #9aa8bd;
+  --plan-context: #e7ebf2;
+
+  --ring: #1e5288;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #0b1220;
+    --surface-raised: #131c2e;
+    --surface-sunken: #080d17;
+    --border: #23304a;
+    --border-strong: #35476a;
+
+    --text: #e8eef8;
+    --text-muted: #9fb0c8;
+    --text-faint: #75879f;
+
+    --brand: #4b8fd6;
+    --brand-hover: #6ba7e6;
+    --brand-contrast: #06101f;
+    --accent: #ef4056;
+
+    --free: #58c58a;
+    --free-soft: #12301f;
+    --busy: #e8875a;
+    --busy-soft: #33190d;
+    --pending: #e0b44d;
+    --pending-soft: #2e2408;
+
+    --plan-fill: #16213a;
+    --plan-line: #47597c;
+    --plan-context: #101a2c;
+
+    --ring: #6ba7e6;
+  }
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-on-brand: var(--brand-contrast);
+  --color-accent: var(--accent);
+  --color-free: var(--free);
+  --color-free-soft: var(--free-soft);
+  --color-busy: var(--busy);
+  --color-busy-soft: var(--busy-soft);
+  --color-pending: var(--pending);
+  --color-pending-soft: var(--pending-soft);
+  --color-plan-fill: var(--plan-fill);
+  --color-plan-line: var(--plan-line);
+  --color-plan-context: var(--plan-context);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--surface);
+  color: var(--text);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04";
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The stat rail on room cards and detail pages. */
+.spec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.spec-grid > * {
+  background: var(--surface-raised);
+  padding: 0.75rem 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
