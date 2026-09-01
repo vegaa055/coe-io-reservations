@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useId, useState } from "react";
 
 import {
+  PLAN_BUILDINGS,
+  PLAN_CIRCULATION,
   PLAN_CONTEXT,
   PLAN_KIOSK,
   PLAN_ROOMS,
@@ -60,20 +62,20 @@ export function FloorPlan({ rooms, selectedSlug, interactive = true, className }
     const isHovered = shape.key === hovered;
 
     if (isSelected) {
-      return { fill: "var(--accent)", opacity: 0.18, stroke: "var(--accent)", width: 3 };
+      return { fill: "var(--accent)", opacity: 0.18, stroke: "var(--accent)", width: 2.5 };
     }
     if (isHovered) {
-      return { fill: "var(--brand)", opacity: 0.18, stroke: "var(--brand)", width: 2.5 };
+      return { fill: "var(--brand)", opacity: 0.18, stroke: "var(--brand)", width: 2 };
     }
     if (info?.status) {
       return {
         fill: STATUS_FILL[info.status],
         opacity: 1,
         stroke: STATUS_STROKE[info.status],
-        width: 1.5,
+        width: 1.1,
       };
     }
-    return { fill: "var(--surface-raised)", opacity: 1, stroke: "var(--plan-line)", width: 1.5 };
+    return { fill: "var(--surface-raised)", opacity: 1, stroke: "var(--plan-line)", width: 1.1 };
   }
 
   function renderRoom(shape: PlanShape) {
@@ -84,6 +86,13 @@ export function FloorPlan({ rooms, selectedSlug, interactive = true, className }
 
     const body = (
       <>
+        {/*
+          One interpolated string, not several children. React treats <title>
+          as document metadata and only serialises a single text child, so
+          `{a} · {b}` renders empty on the server and full on the client — a
+          hydration mismatch that takes the whole page's interactivity down.
+        */}
+        {info && <title>{`${info.name} · seats ${info.capacity}`}</title>}
         <polygon
           points={toPointsAttr(shape.points)}
           fill={style.fill}
@@ -97,26 +106,13 @@ export function FloorPlan({ rooms, selectedSlug, interactive = true, className }
           y={cy}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize={isCommons ? 30 : 27}
+          fontSize={isCommons ? 15 : 12}
           fontWeight={600}
           fill={info ? "var(--text)" : "var(--text-faint)"}
           pointerEvents="none"
         >
           {shape.label}
         </text>
-        {info && (
-          <text
-            x={cx}
-            y={cy + 26}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize={19}
-            fill="var(--text-muted)"
-            pointerEvents="none"
-          >
-            seats {info.capacity}
-          </text>
-        )}
       </>
     );
 
@@ -148,18 +144,27 @@ export function FloorPlan({ rooms, selectedSlug, interactive = true, className }
         aria-labelledby={titleId}
         className="h-auto w-full"
       >
-        <title id={titleId}>Floor plan of the JAG-Ed Center showing the reservable rooms</title>
+        <title id={titleId}>
+          Floor plan of the JAG-Ed Center and the ATB C State Building wing, showing the
+          reservable rooms
+        </title>
+
+        {/* Corridor floor first — it runs under everything and ties the two wings together. */}
+        {PLAN_CIRCULATION.map((band, index) => (
+          <polygon
+            key={`corridor-${index}`}
+            points={toPointsAttr(band)}
+            fill="var(--plan-fill)"
+            stroke="none"
+          />
+        ))}
 
         {/*
           Order matters. The commons polygon encloses the pods and the kiosk, so
           it has to be painted before them or it would hide them.
         */}
         {commons && (
-          <polygon
-            points={toPointsAttr(commons.points)}
-            fill="var(--plan-fill)"
-            stroke="none"
-          />
+          <polygon points={toPointsAttr(commons.points)} fill="var(--plan-fill)" stroke="none" />
         )}
         {commons && renderRoom(commons)}
 
@@ -171,14 +176,14 @@ export function FloorPlan({ rooms, selectedSlug, interactive = true, className }
                 points={toPointsAttr(shape.points)}
                 fill="var(--plan-context)"
                 stroke="var(--plan-line)"
-                strokeWidth={1.5}
+                strokeWidth={1.1}
               />
               <text
                 x={cx}
                 y={cy}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize={26}
+                fontSize={11}
                 fill="var(--text-faint)"
               >
                 {shape.label}
@@ -193,20 +198,37 @@ export function FloorPlan({ rooms, selectedSlug, interactive = true, className }
           r={PLAN_KIOSK.r}
           fill="var(--plan-context)"
           stroke="var(--plan-line)"
-          strokeWidth={1.5}
+          strokeWidth={1.1}
         />
         <text
           x={PLAN_KIOSK.cx}
           y={PLAN_KIOSK.cy}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize={19}
+          fontSize={8}
           fill="var(--text-faint)"
         >
           {PLAN_KIOSK.label}
         </text>
 
         {pods.map(renderRoom)}
+
+        {PLAN_BUILDINGS.map((building) => (
+          <text
+            key={building.label}
+            x={building.at[0]}
+            y={building.at[1]}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={12}
+            fontWeight={600}
+            letterSpacing={0.4}
+            fill="var(--text-muted)"
+            pointerEvents="none"
+          >
+            {building.label}
+          </text>
+        ))}
       </svg>
     </figure>
   );

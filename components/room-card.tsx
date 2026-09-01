@@ -37,8 +37,10 @@ export function RoomCard({ room }: { room: RoomWithDetail }) {
             <h3 className="text-lg font-semibold leading-tight">{room.name}</h3>
             <p className="mt-0.5 text-sm text-muted">
               {ROOM_TYPE_LABEL[room.type]} · seats {room.capacity}
+              {room.maxOccupancy ? ` (holds ${room.maxOccupancy})` : ""}
               {room.widthFt && room.lengthFt ? ` · ${room.widthFt}×${room.lengthFt} ft` : ""}
             </p>
+            <p className="mt-0.5 text-xs text-faint">{room.building}</p>
           </div>
           <LiveStatusPill status={room.status} busyUntil={room.busyUntil} />
         </div>

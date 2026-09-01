@@ -1,14 +1,19 @@
-// Vibe Venue — College of Engineering reservable rooms
+// Vibe Venue - College of Engineering reservable rooms
 //
 // Overlap safety note: the "no double-booking" guarantee is NOT enforced here.
-// Prisma has no way to express a PostgreSQL exclusion constraint, so it lives in
-// prisma/migrations/<timestamp>_init/migration.sql as:
+// Prisma cannot express exclusion constraints, so it lives in the migrations as
+// a constraint on booking_spaces:
 //
-//   EXCLUDE USING gist (room_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&)
-//     WHERE (status IN ('PENDING', 'CONFIRMED'))
+//   EXCLUDE USING gist (space_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&)
 //
-// Never regenerate that migration from `prisma migrate dev --create-only` without
-// re-adding the constraint, or concurrent requests can double-book a room.
+// It is on the *space* claims rather than on bookings because one physical
+// space can be listed more than once - C165a, C165b and the combined C165 are
+// three rooms over two halves - and a per-room constraint cannot see across
+// listings. Every booking claims one row per space it occupies; the claims are
+// deleted when it is cancelled or denied.
+//
+// This relies on every room mapping to at least one Space. createBooking()
+// refuses otherwise, and scripts/verify-overlap.ts asserts it.
 
 generator client {
   provider = "prisma-client-js"
@@ -50,9 +55,14 @@ model Room {
   summary     String
   description String?
 
+  /// Seats actually set out in the room — what the room "seats".
   capacity Int
-  widthFt  Int?
-  lengthFt Int?
+  /// Fire-code / posted maximum, when it differs from the seated count. A
+  /// classroom with 18 chairs can still hold 45 standing, and the booking form
+  /// checks headcount against this when it is set.
+  maxOccupancy Int?
+  widthFt      Int?
+  lengthFt     Int?
 
   /// Shown to users but not bookable yet (prototype rollout, or space under renovation).
   isBookable Boolean @default(true)
@@ -78,6 +88,8 @@ model Room {
   images    RoomImage[]
   bookings  Booking[]
   closures  Closure[]
+  /// The physical space(s) this listing occupies. See the Space model.
+  spaces    RoomSpace[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -141,10 +153,60 @@ model Booking {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
+  /// One row per physical space held. These are what actually enforce
+  /// no-double-booking; they are deleted when a booking is cancelled or denied.
+  spaces BookingSpace[]
+
   @@index([roomId, startsAt])
   @@index([requesterEmail])
   @@index([status])
   @@map("bookings")
+}
+
+/// A physical, indivisible piece of the building.
+///
+/// A bookable Room is not always a physical room. C165 has a movable partition,
+/// so it is listed three ways — C165a, C165b, and the combined space — over two
+/// physical halves. Booking any listing holds every space it covers, which is
+/// what stops the combined room and a half being booked at the same time.
+/// Most rooms are exactly one space and this layer is invisible.
+model Space {
+  id    String @id @default(cuid())
+  key   String @unique
+  label String
+
+  rooms    RoomSpace[]
+  bookings BookingSpace[]
+
+  @@map("spaces")
+}
+
+model RoomSpace {
+  roomId  String @map("room_id")
+  spaceId String @map("space_id")
+  room    Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, spaceId])
+  @@index([spaceId])
+  @@map("room_spaces")
+}
+
+/// A claim on one physical space for one interval. The exclusion constraint on
+/// this table is the real no-double-booking guarantee; see the migration.
+model BookingSpace {
+  id        String   @id @default(cuid())
+  bookingId String   @map("booking_id")
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  spaceId   String   @map("space_id")
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  @@index([spaceId, startsAt])
+  @@index([bookingId])
+  @@map("booking_spaces")
 }
 
 /// Blackout window — holiday closure, maintenance, a semester-long class block.

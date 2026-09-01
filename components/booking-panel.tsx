@@ -20,6 +20,8 @@ export type PanelRoom = RoomPolicy & {
   slug: string;
   name: string;
   capacity: number;
+  /// Posted maximum where it differs from the seated count.
+  maxOccupancy: number | null;
   needsApproval: boolean;
 };
 
@@ -267,12 +269,15 @@ export function BookingPanel({ room, dateKey, schedule, dayBookings, viewer }: P
                 name="attendees"
                 type="number"
                 min={1}
-                max={room.capacity}
+                max={room.maxOccupancy ?? room.capacity}
                 defaultValue={Math.min(4, room.capacity)}
                 required
                 className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm"
               />
-              <p className="mt-1 text-xs text-faint">Seats {room.capacity}</p>
+              <p className="mt-1 text-xs text-faint">
+                Seats {room.capacity}
+                {room.maxOccupancy ? `, holds ${room.maxOccupancy}` : ""}
+              </p>
             </Field>
             <Field label="Department" error={fieldError(state, "department")}>
               <input

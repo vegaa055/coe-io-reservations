@@ -1,0 +1,15 @@
+-- ---------------------------------------------------------------------------
+-- Drop the per-room exclusion constraint, now that booking_spaces carries the
+-- guarantee.
+--
+-- It is redundant: two bookings of the same room claim exactly the same set of
+-- physical spaces, so "booking_spaces_no_overlap" already rejects them. Keeping
+-- both meant every insert took locks in two separate exclusion indexes, and
+-- under concurrent requests for a multi-space room that produced genuine
+-- deadlocks (40P01) rather than clean conflicts.
+--
+-- The invariant this relied on — every room maps to at least one space — is
+-- enforced in createBooking(), which refuses to book a room with no spaces, and
+-- asserted by scripts/verify-overlap.ts.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "bookings" DROP CONSTRAINT IF EXISTS "bookings_no_overlap";

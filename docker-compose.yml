@@ -1,7 +1,13 @@
+# Pinned so the Compose project name — and therefore the database volume —
+# does not change if this folder is renamed or cloned elsewhere. Without it
+# Compose derives the project from the directory, and a rename silently
+# orphans the volume and hands you an empty database.
+name: coe-io-reservations
+
 services:
   db:
     image: postgres:17-alpine
-    container_name: vibe-venue-db
+    container_name: coe-io-reservations-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: venue

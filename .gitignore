@@ -42,3 +42,9 @@ next-env.d.ts
 
 # keep the template committed
 !.env.example
+
+# floor-plan tracer scratch output
+scripts/.trace-out/
+
+# local database dumps
+.backup/

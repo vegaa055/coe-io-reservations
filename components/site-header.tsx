@@ -10,16 +10,27 @@ export async function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-line bg-surface/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3 sm:px-8">
         <Link href="/" className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold tracking-tight text-on-brand"
-          >
-            JE
-          </span>
-          <span className="leading-tight">
-            <span className="block text-sm font-semibold">JAG-Ed Center</span>
-            <span className="block text-xs text-muted">Room reservations</span>
-          </span>
+          {/*
+            A <picture> rather than next/image: the artwork draws its wordmark in
+            Arizona Blue, which disappears on the dark background, so dark mode
+            gets a reversed copy (npm run logo). next/image cannot swap sources
+            on a media query, and there is nothing to optimise in an SVG anyway.
+            width/height are the artwork's own viewBox, to reserve the space.
+          */}
+          <picture>
+            <source
+              srcSet="/coe-intelligence-operations-dark.svg"
+              media="(prefers-color-scheme: dark)"
+            />
+            <img
+              src="/coe-intelligence-operations.svg"
+              alt="College of Engineering, Intelligence Operations"
+              width={209}
+              height={33}
+              className="h-7 w-auto sm:h-8"
+            />
+          </picture>
+          <span className="hidden text-xs text-muted sm:inline">Room reservations</span>
         </Link>
 
         <nav className="ml-auto flex items-center gap-1 text-sm">

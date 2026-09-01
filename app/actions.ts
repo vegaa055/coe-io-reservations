@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
 import { IDENTITY_COOKIE, requireStaff } from "@/lib/auth";
-import { cancelBooking, createBooking } from "@/lib/bookings";
+import { cancelBooking, createBooking, isOverlapViolation } from "@/lib/bookings";
 import { prisma } from "@/lib/prisma";
 import {
   bookingInputSchema,
@@ -150,12 +150,20 @@ export async function staffBookingAction(
           };
 
   try {
-    await prisma.booking.update({ where: { id: bookingId }, data });
+    // Denying or cancelling has to release the space claims, or the room stays
+    // blocked. Confirming leaves them alone — they already hold the slot.
+    if (action === "deny" || action === "cancel") {
+      await prisma.$transaction([
+        prisma.bookingSpace.deleteMany({ where: { bookingId } }),
+        prisma.booking.update({ where: { id: bookingId }, data }),
+      ]);
+    } else {
+      await prisma.booking.update({ where: { id: bookingId }, data });
+    }
   } catch (error) {
     // Approving a pending request can collide with a confirmed booking that was
     // made in the meantime; the exclusion constraint catches it.
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("23P01") || message.includes("bookings_no_overlap")) {
+    if (isOverlapViolation(error)) {
       return {
         status: "error",
         message: "That slot is now taken by a confirmed reservation. Deny this request instead.",

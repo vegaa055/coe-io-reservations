@@ -47,66 +47,60 @@ export default async function HomePage({
   return (
     <div className="flex flex-col gap-8">
       <section className="max-w-2xl">
-        <p className="text-sm font-medium uppercase tracking-wide text-brand">
-          College of Engineering
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-          Reserve a space in the JAG-Ed Center
+        {/* The header logo already says College of Engineering, so no eyebrow here. */}
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          Reserve a room
         </h1>
         <p className="mt-3 text-base leading-relaxed text-muted">
-          Eight reservable spaces, from five-seat huddle pods to the full commons. Pick a room to
-          see photos, equipment and what is open this week.
+          Meeting rooms, classrooms and the full commons, across the JAG-Ed Center and the ATB C
+          State Building. Pick a room to see photos, equipment and what is open this week.
         </p>
       </section>
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-        <div className="flex flex-col gap-5">
-          <Suspense
-            fallback={<div className="h-36 rounded-xl border border-line bg-raised" />}
-          >
-            <RoomFilters
-              amenities={amenities.map((a) => ({ key: a.key, label: a.label }))}
-            />
-          </Suspense>
-
-          <p className="text-sm text-muted" aria-live="polite">
-            {rooms.length} of {allRooms.length} spaces
-          </p>
-
-          {rooms.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-line-strong p-10 text-center">
-              <p className="font-medium">Nothing matches those filters.</p>
-              <p className="mt-1 text-sm text-muted">
-                Try widening the seat count or clearing the equipment filter.
-              </p>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-4">
-              {rooms.map((room) => (
-                <li key={room.id}>
-                  <RoomCard room={room} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <aside className="order-first rounded-xl border border-line bg-raised p-4 lg:order-none lg:sticky lg:top-24">
+      <section className="rounded-xl border border-line bg-raised p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
           <h2 className="text-sm font-semibold">Where the rooms are</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            Select a room on the plan to open it.
+          <p className="text-xs text-muted">
+            Select a room to open it. Shaded rooms are not reservable.
           </p>
-          <FloorPlan rooms={planRooms} className="mt-3" />
-          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
-            <LegendItem color="var(--free)" background="var(--free-soft)" label="Free now" />
-            <LegendItem color="var(--busy)" background="var(--busy-soft)" label="In use" />
-            <LegendItem
-              color="var(--plan-line)"
-              background="var(--plan-context)"
-              label="Closed or not reservable"
-            />
+        </div>
+        <FloorPlan rooms={planRooms} className="mt-3 overflow-x-auto" />
+        <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
+          <LegendItem color="var(--free)" background="var(--free-soft)" label="Free now" />
+          <LegendItem color="var(--busy)" background="var(--busy-soft)" label="In use" />
+          <LegendItem
+            color="var(--plan-line)"
+            background="var(--plan-context)"
+            label="Closed or not reservable"
+          />
+        </ul>
+      </section>
+
+      <div className="flex flex-col gap-5">
+        <Suspense fallback={<div className="h-36 rounded-xl border border-line bg-raised" />}>
+          <RoomFilters amenities={amenities.map((a) => ({ key: a.key, label: a.label }))} />
+        </Suspense>
+
+        <p className="text-sm text-muted" aria-live="polite">
+          {rooms.length} of {allRooms.length} spaces
+        </p>
+
+        {rooms.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-line-strong p-10 text-center">
+            <p className="font-medium">Nothing matches those filters.</p>
+            <p className="mt-1 text-sm text-muted">
+              Try widening the seat count or clearing the equipment filter.
+            </p>
+          </div>
+        ) : (
+          <ul className="grid gap-4 xl:grid-cols-2">
+            {rooms.map((room) => (
+              <li key={room.id}>
+                <RoomCard room={room} />
+              </li>
+            ))}
           </ul>
-        </aside>
+        )}
       </div>
     </div>
   );

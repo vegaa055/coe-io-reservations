@@ -7,11 +7,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "JAG-Ed Center Reservations",
-    template: "%s · JAG-Ed Center Reservations",
+    default: "Room Reservations · Intelligence Operations",
+    // Keeps room pages short: "Room B154 · Intelligence Operations".
+    template: "%s · Intelligence Operations",
   },
   description:
-    "Browse and reserve the meeting, conference and adaptable spaces in the JAG-Ed Center, College of Engineering.",
+    "Browse and reserve the meeting, conference and adaptable spaces run by Intelligence Operations, College of Engineering — in the JAG-Ed Center and the ATB C State Building.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -30,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </main>
         <footer className="border-t border-line">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-5 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8">
-            <p>College of Engineering · JAG-Ed Center</p>
+            <p>Intelligence Operations · College of Engineering</p>
             <p>
               All times shown in {TZ.replace("_", " ")} (Arizona does not observe daylight saving).
             </p>

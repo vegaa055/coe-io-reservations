@@ -4,11 +4,18 @@ import { notFound } from "next/navigation";
 
 import { BookingPanel, type DayBooking } from "@/components/booking-panel";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
+import { PLANNED_SLUGS } from "@/components/floor-plan/geometry";
 import { Gallery } from "@/components/gallery";
 import { LiveStatusPill } from "@/components/status-pill";
 import { getViewer } from "@/lib/auth";
 import { buildDaySchedule } from "@/lib/availability";
-import { getDayIntervals, getRoom, getRoomsWithStatus, ROOM_TYPE_LABEL } from "@/lib/rooms";
+import {
+  getDayIntervals,
+  getOverlappingRooms,
+  getRoom,
+  getRoomsWithStatus,
+  ROOM_TYPE_LABEL,
+} from "@/lib/rooms";
 import { addDaysToKey, dateKeyToUtc, minutesOfDay, todayKey } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -49,10 +56,11 @@ export default async function RoomPage({
 
   const dayStart = dateKeyToUtc(dateKey, 0);
   const dayEnd = dateKeyToUtc(addDaysToKey(dateKey, 1), 0);
-  const [{ bookings, closures }, viewer, allRooms] = await Promise.all([
+  const [{ bookings, closures }, viewer, allRooms, sharesWith] = await Promise.all([
     getDayIntervals(room.id, dayStart, dayEnd),
     getViewer(),
     getRoomsWithStatus(),
+    getOverlappingRooms(room.id),
   ]);
 
   const schedule = buildDaySchedule(
@@ -66,7 +74,11 @@ export default async function RoomPage({
   const dayBookings: DayBooking[] = bookings.map((booking) => ({
     startMinute: minutesOfDay(booking.startsAt),
     endMinute: minutesOfDay(booking.endsAt),
-    label: viewer?.isStaff ? `${booking.title} — ${booking.requesterName}` : "Reserved",
+    label: viewer?.isStaff
+      ? `${booking.title} — ${booking.requesterName}${booking.viaRoomName ? ` · via ${booking.viaRoomName}` : ""}`
+      : booking.viaRoomName
+        ? `Reserved — ${booking.viaRoomName}`
+        : "Reserved",
   }));
 
   const photos = room.images.filter((image) => image.kind === "PHOTO");
@@ -112,10 +124,31 @@ export default async function RoomPage({
             </section>
           )}
 
+          {sharesWith.length > 0 && (
+            <aside className="rounded-xl border border-line bg-sunken p-4 text-sm">
+              <p className="font-medium">Shares floor space</p>
+              <p className="mt-1 leading-relaxed text-muted">
+                The same floor is also listed as{" "}
+                {sharesWith.map((other, i) => (
+                  <span key={other.slug}>
+                    {i > 0 && (i === sharesWith.length - 1 ? " and " : ", ")}
+                    <Link href={`/rooms/${other.slug}`} className="text-brand hover:underline">
+                      {other.name}
+                    </Link>
+                  </span>
+                ))}
+                . Reserving any one of them holds the space, so they can never overlap.
+              </p>
+            </aside>
+          )}
+
           <section>
             <h2 className="text-lg font-semibold">At a glance</h2>
             <dl className="spec-grid mt-3">
               <Spec label="Seats" value={String(room.capacity)} />
+              {room.maxOccupancy && (
+                <Spec label="Max occupancy" value={String(room.maxOccupancy)} />
+              )}
               {room.widthFt && room.lengthFt && (
                 <Spec label="Size" value={`${room.widthFt} × ${room.lengthFt} ft`} />
               )}
@@ -155,20 +188,29 @@ export default async function RoomPage({
 
           <section>
             <h2 className="text-lg font-semibold">Finding it</h2>
-            <p className="mt-1 text-sm text-muted">
-              {room.name} highlighted on the JAG-Ed Center floor plan.
-            </p>
-            <div className="mt-3 max-w-sm rounded-xl border border-line bg-raised p-4">
-              <FloorPlan
-                rooms={allRooms.map((r) => ({
-                  slug: r.slug,
-                  number: r.number,
-                  name: r.name,
-                  capacity: r.capacity,
-                }))}
-                selectedSlug={room.slug}
-              />
-            </div>
+            {PLANNED_SLUGS.has(room.slug) ? (
+              <>
+                <p className="mt-1 text-sm text-muted">
+                  {room.name} highlighted on the floor plan.
+                </p>
+                <div className="mt-3 rounded-xl border border-line bg-raised p-4">
+                  <FloorPlan
+                    rooms={allRooms.map((r) => ({
+                      slug: r.slug,
+                      number: r.number,
+                      name: r.name,
+                      capacity: r.capacity,
+                    }))}
+                    selectedSlug={room.slug}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="mt-1 text-sm text-muted">
+                {room.name} is in the {room.building}, east along the corridor from the JAG-Ed
+                Center. It is not on the floor plan yet.
+              </p>
+            )}
           </section>
         </div>
 
@@ -179,6 +221,7 @@ export default async function RoomPage({
               slug: room.slug,
               name: room.name,
               capacity: room.capacity,
+              maxOccupancy: room.maxOccupancy,
               needsApproval: room.needsApproval,
               isBookable: room.isBookable,
               openMinute: room.openMinute,

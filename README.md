@@ -1,6 +1,7 @@
-# JAG-Ed Center Room Reservations
+# Room Reservations · Intelligence Operations
 
-Reservation app for the College of Engineering's reservable spaces in the JAG-Ed Center.
+Reservation app for the spaces run by Intelligence Operations, College of Engineering — the JAG-Ed
+Center and the classrooms in the ATB C State Building.
 
 Next.js (App Router) · PostgreSQL · Prisma · Tailwind v4 · deploys to Vercel.
 
@@ -20,8 +21,8 @@ cp .env.example .env
 npm run db:up && npm run db:deploy && npm run db:seed && npm run dev
 ```
 
-That starts PostgreSQL 17 in Docker on **port 5455**, applies the migration, loads the eight
-rooms from the handout, and serves <http://localhost:3000>.
+That starts PostgreSQL 17 in Docker on **port 5455**, applies the migrations, loads the eleven
+listings, and serves <http://localhost:3000>.
 
 > Port 5455 is deliberate: this machine already has a native PostgreSQL listening on both 5432
 > and 5433, and it silently shadows Docker's published port.
@@ -33,6 +34,8 @@ rooms from the handout, and serves <http://localhost:3000>.
 | `npm run db:migrate` | Create and apply a migration |
 | `npm run db:reset` | Drop, re-migrate and re-seed |
 | `npm run db:studio` | Prisma Studio — the admin UI for closures and room policy |
+| `npm run photos` | Resize new photos from `img/` into `public/rooms/` |
+| `npm run logo` | Regenerate the header logo's light and dark copies |
 | `npm run verify:overlap` | The double-booking test suite (below) |
 | `npm run typecheck` / `lint` | Types and lint |
 
@@ -41,40 +44,59 @@ rooms from the handout, and serves <http://localhost:3000>.
 ## How double-booking is prevented
 
 Application-level "check then insert" cannot stop two simultaneous requests — both read an empty
-slot before either writes. So the guarantee lives in PostgreSQL, in
-[the init migration](prisma/migrations):
+slot before either writes. So the guarantee lives in PostgreSQL.
+
+It is not a constraint on bookings, though, because **one physical space can be listed more than
+once**. C165 has a movable partition and is listed three ways — C165a, C165b, and the combined
+room — over two physical halves. Those are three different `room_id`s, so a per-room constraint
+cannot see that booking "the whole room" and booking "half of it" collide.
+
+So a `Space` is the physical unit, a `Room` is a bookable listing over one or more spaces, and
+every booking claims one row per space it occupies:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
-ALTER TABLE "bookings"
-    ADD CONSTRAINT "bookings_no_overlap"
+ALTER TABLE "booking_spaces"
+    ADD CONSTRAINT "booking_spaces_no_overlap"
     EXCLUDE USING gist (
-        "room_id" WITH =,
+        "space_id" WITH =,
         tstzrange("starts_at", "ends_at", '[)') WITH &&
-    ) WHERE ("status" IN ('PENDING', 'CONFIRMED'));
+    );
 ```
 
-Three things fall out of that definition:
+Things that fall out of this:
 
 - **`'[)'` — half open.** A booking ending at 10:00 does not collide with one starting at 10:00.
-- **The `WHERE` clause.** Cancelled and denied rows leave the index, so a slot frees up the
-  instant someone cancels. A *pending* request still holds its slot, so two people cannot both be
-  waiting on staff approval for the same room and time.
-- **`btree_gist`.** Lets one GiST index mix plain equality on `room_id` with range overlap.
+- **No `WHERE` clause is needed.** A claim exists only while the booking holds the space, and is
+  deleted on cancel or deny — so status never has to be kept in sync with the index. A *pending*
+  request keeps its claims, so two people cannot both be waiting on approval for the same room.
+- **`btree_gist`.** Lets one GiST index mix plain equality on `space_id` with range overlap.
+- **Most rooms are one space** and never notice any of this.
 
-`lib/bookings.ts` still does a pre-flight query first — but only so the common case gets a
-friendly message. The constraint is what makes it correct; the code catches SQLSTATE `23P01` and
-turns it into a 409-style "someone booked that a moment before you".
+Two subtleties worth knowing before changing this code:
+
+- **Each transaction takes an advisory lock per space first**, in sorted order. Ordering the
+  inserts alone is not enough: inserting into a GiST exclusion index writes a speculative entry and
+  then waits on the conflicting transaction, so a booking claiming two spaces can hold one entry
+  while waiting for the other — and two of those deadlock (40P01). Under a burst of simultaneous
+  requests that happened often enough to exhaust the retries. The advisory locks make conflicting
+  requests queue instead of racing inside the index; the exclusion constraint still decides who
+  wins. `createBooking` also retries deadlocks, serialization failures and transaction timeouts
+  with a randomised backoff, since none of those mean the slot is taken.
+- **There is deliberately only one exclusion constraint.** An earlier per-room constraint on
+  `bookings` was dropped: it was fully redundant, and having inserts take locks in two exclusion
+  indexes was itself a source of deadlocks. This relies on every room mapping to at least one
+  space — `createBooking` refuses otherwise, and the suite asserts it.
 
 **Prisma cannot express exclusion constraints.** The SQL is appended by hand to the generated
-migration. If that migration is ever regenerated, re-add the block or the guarantee silently
-disappears.
+migrations. If those are ever regenerated, re-add the blocks or the guarantee silently disappears.
 
-`npm run verify:overlap` proves all of it, including 12 concurrent `createBooking()` calls for the
-same slot:
+`npm run verify:overlap` proves all of it:
 
 ```
+Invariants
+  PASS  every room maps to at least one physical space
 Database constraint
   PASS  a first booking is accepted
   PASS  an identical booking is rejected
@@ -90,6 +112,16 @@ Concurrency through createBooking()
   PASS  exactly one of 12 simultaneous requests wins the slot
   PASS  every loser gets a CONFLICT, not a crash
   PASS  only one row is actually stored
+Divisible room (C165)
+  PASS  the combined room can be booked
+  PASS  a half is blocked while the combined room is booked
+  PASS  the other half is blocked too
+  PASS  cancelling the combined booking frees the halves
+  PASS  the two halves stay independent of each other
+  PASS  the combined room is blocked while a half is booked
+Concurrency across listings of the same floor
+  PASS  8 simultaneous requests for the whole room and one half yield exactly one winner
+  PASS  the winner holds its own spaces only, never a mix from two bookings
 ```
 
 It writes and deletes its own rows (`@overlap-test.invalid`), so it is safe against a seeded dev
@@ -116,19 +148,40 @@ lib/
   bookings.ts              Booking rules + conflict handling
   auth.ts                  Prototype identity shim — replace this with SSO
 prisma/
-  schema.prisma            Room, Amenity, RoomImage, Booking, Closure
-  seed.ts                  The eight rooms, transcribed from the handout
-scripts/verify-overlap.ts  The proof above
+  schema.prisma            Room, Space, Booking, BookingSpace, Amenity, RoomImage, Closure
+  seed.ts                  The eleven listings, transcribed from the handouts
+scripts/
+  verify-overlap.ts        The proof above
+  trace_floor_plan.py      Regenerates the floor-plan geometry from img/map.png
+  prepare-photos.mjs       Resizes img/ originals into public/rooms/
+  make-logo-variants.mjs   Writes the header logo's light and dark copies
 ```
 
 **Time.** Everything stored is `timestamptz`; everything displayed is Arizona wall time. Arizona
 does not observe DST, but the conversions in `lib/time.ts` are DST-correct anyway, so a second
 campus in a DST zone would not need new code. Slots are 30 minutes.
 
-**The floor plan** is inline SVG, not the handout PNGs. The polygons were traced pixel-by-pixel out
-of the `B### HL.png` highlight files, so they match the diagrams staff already hand out — but as
-SVG they can be clicked, tinted live by availability (green = free now, amber = in use), and they
-follow light/dark mode. The original PNGs are still seeded as each room's `PLAN` image.
+**The floor plan** is inline SVG covering both buildings, generated rather than drawn:
+
+```bash
+python scripts/trace_floor_plan.py emit
+```
+
+`img/map.png` is three-valued — white rooms, grey circulation, black walls — so the rooms are white
+islands fenced in by lines. The script finds them by connected-component labelling, traces each
+outline and simplifies it, then writes `components/floor-plan/geometry.ts`. Because the polygons
+come out of the drawing itself they line up with the map the college already hands out, but as SVG
+they can be clicked, tinted live by availability (green = free now, amber = in use), and they
+follow light/dark mode. Run `inspect` instead of `emit` to get a numbered overlay when the source
+drawing changes and the region ids need remapping. Do not hand-edit the `points`.
+
+Twenty-two spaces are drawn; the ten reservable ones are clickable and the rest — B137/B141/B146,
+the B156–B160 offices, the restrooms, C165 and C166A — are shaded for orientation.
+
+**Seats vs occupancy.** `capacity` is the chairs actually set out; `maxOccupancy` is the posted
+maximum, where one is given. The booking form checks headcount against `maxOccupancy ?? capacity`,
+so a 45-person classroom with 18 chairs can still take a 30-person standing session. Only the
+ATB C rooms have a posted figure so far.
 
 **Per-room policy** lives on the `Room` row rather than in code: opening hours, open weekdays,
 minimum and maximum booking length, how far ahead people may book, whether it needs approval, and
@@ -137,6 +190,101 @@ to `needsApproval` and an 8-hour maximum; the two huddle pods cap at 2 hours.
 
 **Closures** are blackout windows (holidays, maintenance, a semester-long class block). A closure
 with no `roomId` applies to every room. There is no admin UI yet — add them in Prisma Studio.
+
+---
+
+## Adding or replacing photos
+
+There are three places a photo exists, and they are not interchangeable:
+
+| Where | What it is |
+| --- | --- |
+| `img/` | **Drop new photos here.** The full-resolution originals, straight off the camera. Never served to the browser. |
+| `public/rooms/` | What the app actually serves, at `/rooms/<name>.jpg`. Generated — do not hand-edit. |
+| `room_images` table | The URL, alt text, kind and display order. Populated by `prisma/seed.ts`. |
+
+**To replace an existing photo** — drop it in `img/` under the same name, then:
+
+```bash
+npm run photos
+```
+
+**To add a photo a room does not have yet**, do the same, then add the file to that room's
+`images` array in `prisma/seed.ts` with its alt text and re-run `npm run db:seed`. The app reads
+image URLs from the **database**, not from the filesystem, so a file in `public/rooms/` that
+nothing references will never appear no matter how many times you re-run `npm run photos`. That is
+the one step that is easy to miss, so the script now names any unreferenced photo when it finishes:
+
+```
+1 photo(s) not referenced by prisma/seed.ts:
+  /rooms/b154.jpg
+Add each to that room's `images` array, then run: npm run db:seed
+```
+
+`npm run photos` does four things worth knowing about:
+
+- **It bakes in EXIF orientation.** Phone cameras usually leave the pixels alone and record the
+  rotation in a metadata tag. Browsers honour that tag; many image tools silently ignore it, which
+  is how a photo ends up upside down in one place and fine in another. Two of the three JAG-Ed
+  Center photos are orientation 3 (rotated 180°) — the script applies the rotation to the pixels
+  and drops the tag, so the served file is unambiguous everywhere.
+- **It downscales to 2560 px wide** at quality 82. The gallery never renders wider than about
+  640 CSS px, so that is still 2x headroom on a retina display. The three new commons photos went
+  from 12 MB to 1.5 MB with no visible difference. Raise `MAX_WIDTH` in
+  `scripts/prepare-photos.mjs` if you ever need more.
+
+- **It lowercases the served filename.** Windows filesystems are case-insensitive, so a photo
+  dropped in as `B154.jpg` answers a request for `/rooms/b154.jpg` locally and then 404s on Vercel,
+  which is Linux. Normalising the output means the same file behaves the same in both places, and
+  you can name the originals in `img/` however you like.
+- **It clears the next/image cache.** This one is worth understanding, because it produces a very
+  confusing bug. `next/image` caches optimised output keyed by *(url, width, quality, format)* —
+  and the url does not change when a file is overwritten in place. So a replaced photo keeps
+  serving the old bytes, but **only for the formats and widths a browser had already requested**.
+  The symptom is that `curl` shows a perfectly fresh JPEG while Chrome shows a stale WebP, which
+  makes it look like a browser-cache problem when it is actually server-side. Clearing your own
+  browser cache does not help. `?v=hash` cache-busting does not work either — Next rejects query
+  strings on local images with `"url" parameter is not allowed`.
+
+Photos already smaller than 2560 px and without an orientation tag are copied through byte-for-byte
+rather than re-encoded, so re-running the script is safe and does not degrade anything.
+
+**In production** there is no cache to clear, so `images.minimumCacheTTL` in `next.config.ts`
+bounds how long a replaced photo can serve its old version — currently one hour. If a swap ever
+needs to be live immediately, give the new file a different name and update `prisma/seed.ts`; a new
+url is a new cache key and takes effect at once.
+
+Floor plans are separate: the per-room highlight PNGs live in `public/plans/` and are copied by
+hand, because the interactive plan is generated from `img/map.png` by
+`scripts/trace_floor_plan.py` rather than from those images.
+
+---
+
+## The header logo
+
+The source artwork is `img/COE_Intelligence-Operations_ALTERNATE.svg`. Two copies are served:
+
+```bash
+npm run logo
+```
+
+- `public/coe-intelligence-operations.svg` — the original, untouched.
+- `public/coe-intelligence-operations-dark.svg` — a reversed copy for dark mode.
+
+The reversed copy exists because the wordmark is drawn in Arizona Blue (`#00275B`), which is
+effectively invisible on the dark background; the block A survives only because it sits on its own
+white field. The script recolours the navy `<path>` and `<rect>` elements — the divider rule, the
+registered mark and the wordmark, all of which sit on the page background — and deliberately leaves
+the navy `<polygon>` alone, since that is the block A's frame and has to stay dark against its
+white field.
+
+The header picks between them with `prefers-color-scheme` in a `<picture>` element, which matches
+how the rest of the app themes itself. That is also why it is a plain `<img>` rather than
+`next/image`: image components cannot swap sources on a media query, and an SVG has nothing to
+optimise.
+
+If the logo is ever replaced, re-run `npm run logo` and check the result — it prints how many
+elements it recoloured, and the polygon/path rule is specific to this artwork.
 
 ---
 
@@ -166,8 +314,17 @@ Transcribed from `reference/Room Reservation Presentation (1).pdf`. Four things 
    Both are seeded as bookable. Set `isBookable = false` on either if that is wrong.
 2. **The commons has no amenity list.** Its slide reads `xxxxxxx`. No amenities are seeded, and the
    room page says so rather than inventing any.
-3. **B154 has no photo.** Every other room does. Its card shows a "photo coming soon" placeholder.
-4. **Two diagram files have wrong labels.** `img/JAG-Ed Diagram.png` and
+3. **Every room now has a photo.** B154 was the last one outstanding.
+4. **C165a's info card is titled "Room C166a".** You confirmed the 28×24 / occupancy 45 card is
+   C165a and the title is a typo; it is seeded that way. Worth fixing on the source slide, since
+   C166A is a real and separate room on the area map.
+5. **C165a and C165b are two halves of one room**, confirmed, and the app now models that. They
+   are listed separately and as a combined room; booking the combined space holds both halves,
+   while the two halves stay independent of each other. The combined listing is called
+   **"C165a+b"** as a placeholder — rename `number` / `name` in `prisma/seed.ts` once you know
+   what staff actually call it. It is set to need approval, on the assumption someone has to go
+   and open the partition; flip `needsApproval` in Prisma Studio if not.
+6. **Two diagram files have wrong labels.** `img/JAG-Ed Diagram.png` and
    `img/JAG-Ed Center Diagram.png` each label two rooms `B139` and two rooms `B153`. The per-room
    `B### HL.png` files are correct (B137/B138/B139 and B146/B153/B154/B155) and are what the app's
    geometry came from. Worth fixing at the source before those diagrams get reprinted.

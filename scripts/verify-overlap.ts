@@ -35,6 +35,7 @@ function testDateKey(): string {
 }
 
 async function cleanup() {
+  // BookingSpace rows cascade from the booking.
   await prisma.booking.deleteMany({
     where: { requesterEmail: { endsWith: TEST_EMAIL_DOMAIN } },
   });
@@ -42,15 +43,19 @@ async function cleanup() {
 
 async function rawInsert(roomId: string, startMinute: number, minutes: number, status = "CONFIRMED") {
   const dateKey = testDateKey();
+  const startsAt = dateKeyToUtc(dateKey, startMinute);
+  const endsAt = dateKeyToUtc(dateKey, startMinute + minutes);
+  const spaces = await prisma.roomSpace.findMany({ where: { roomId }, select: { spaceId: true } });
   return prisma.booking.create({
     data: {
       roomId,
-      startsAt: dateKeyToUtc(dateKey, startMinute),
-      endsAt: dateKeyToUtc(dateKey, startMinute + minutes),
+      startsAt,
+      endsAt,
       status: status as "CONFIRMED" | "PENDING" | "CANCELLED" | "DENIED",
       title: "Overlap test",
       requesterName: "Test Runner",
       requesterEmail: `raw${TEST_EMAIL_DOMAIN}`,
+      spaces: { create: spaces.map((s) => ({ spaceId: s.spaceId, startsAt, endsAt })) },
     },
   });
 }
@@ -77,6 +82,21 @@ async function main() {
 
   await cleanup();
 
+  // Dropping the old per-room constraint is only safe while this holds: the
+  // guarantee now lives entirely on space claims, so a room mapped to no space
+  // could be booked without ever conflicting.
+  console.log("Invariants");
+  const roomsWithoutSpace = await prisma.room.findMany({
+    where: { spaces: { none: {} } },
+    select: { number: true },
+  });
+  check(
+    "every room maps to at least one physical space",
+    roomsWithoutSpace.length === 0,
+    roomsWithoutSpace.map((r) => r.number).join(", "),
+  );
+
+  console.log("");
   console.log("Database constraint");
   const base = await rawInsert(room.id, 10 * 60, 60); // 10:00–11:00
   check("a first booking is accepted", Boolean(base.id));
@@ -104,6 +124,7 @@ async function main() {
   const elsewhere = await rawInsert(otherRoom.id, 10 * 60, 60);
   check("the same slot in a different room is accepted", Boolean(elsewhere.id));
 
+  await prisma.bookingSpace.deleteMany({ where: { bookingId: base.id } });
   await prisma.booking.update({ where: { id: base.id }, data: { status: "CANCELLED" } });
   const rebooked = await rawInsert(room.id, 10 * 60, 60);
   check("the slot frees up after a cancellation", Boolean(rebooked.id));
@@ -161,6 +182,118 @@ async function main() {
     },
   });
   check("only one row is actually stored", stored === 1, `${stored} rows`);
+
+  await cleanup();
+
+  // ---------------------------------------------------------------------
+  // Divisible rooms. C165a and C165b are two halves of one room with a movable
+  // partition; "C165a+b" lists the same floor as a single space. That is three
+  // room ids over two physical spaces, so the per-room constraint cannot see
+  // the conflict — only the space claims can.
+  // ---------------------------------------------------------------------
+  console.log("");
+  console.log("Divisible room (C165)");
+
+  async function book(slug: string, startMinute: number, minutes = 60, attendees = 4) {
+    return createBooking({
+      roomSlug: slug,
+      dateKey,
+      startMinute,
+      durationMinutes: minutes,
+      title: `Divisible test ${slug}`,
+      attendees,
+      requesterName: "Test Runner",
+      requesterEmail: `split${TEST_EMAIL_DOMAIN}`,
+    });
+  }
+
+  const whole = await book("c165a-b", 9 * 60);
+  check("the combined room can be booked", whole.ok, whole.ok ? "" : whole.message);
+
+  const halfA = await book("c165a", 9 * 60);
+  check(
+    "a half is blocked while the combined room is booked",
+    !halfA.ok && halfA.code === "CONFLICT",
+    halfA.ok ? "it was accepted" : halfA.message,
+  );
+
+  const halfB = await book("c165b", 9 * 60);
+  check(
+    "the other half is blocked too",
+    !halfB.ok && halfB.code === "CONFLICT",
+    halfB.ok ? "it was accepted" : halfB.message,
+  );
+
+  if (whole.ok) {
+    await prisma.bookingSpace.deleteMany({ where: { bookingId: whole.booking.id } });
+    await prisma.booking.update({
+      where: { id: whole.booking.id },
+      data: { status: "CANCELLED" },
+    });
+  }
+
+  const freedA = await book("c165a", 9 * 60);
+  check("cancelling the combined booking frees the halves", freedA.ok, freedA.ok ? "" : freedA.message);
+
+  const independentB = await book("c165b", 9 * 60);
+  check(
+    "the two halves stay independent of each other",
+    independentB.ok,
+    independentB.ok ? "" : independentB.message,
+  );
+
+  const wholeBlocked = await book("c165a-b", 9 * 60);
+  check(
+    "the combined room is blocked while a half is booked",
+    !wholeBlocked.ok && wholeBlocked.code === "CONFLICT",
+    wholeBlocked.ok ? "it was accepted" : wholeBlocked.message,
+  );
+
+  await cleanup();
+
+  console.log("");
+  console.log("Concurrency across listings of the same floor");
+  const mixed = await Promise.all([
+    ...Array.from({ length: 4 }, (_, i) =>
+      createBooking({
+        roomSlug: "c165a-b",
+        dateKey,
+        startMinute: 15 * 60,
+        durationMinutes: 60,
+        title: `whole ${i}`,
+        attendees: 4,
+        requesterName: "Racer",
+        requesterEmail: `whole${i}${TEST_EMAIL_DOMAIN}`,
+      }),
+    ),
+    ...Array.from({ length: 4 }, (_, i) =>
+      createBooking({
+        roomSlug: "c165a",
+        dateKey,
+        startMinute: 15 * 60,
+        durationMinutes: 60,
+        title: `half ${i}`,
+        attendees: 4,
+        requesterName: "Racer",
+        requesterEmail: `half${i}${TEST_EMAIL_DOMAIN}`,
+      }),
+    ),
+  ]);
+  const mixedWins = mixed.filter((r) => r.ok).length;
+  check(
+    "8 simultaneous requests for the whole room and one half yield exactly one winner",
+    mixedWins === 1,
+    `${mixedWins} succeeded`,
+  );
+
+  const claimRows = await prisma.bookingSpace.count({
+    where: { startsAt: dateKeyToUtc(dateKey, 15 * 60) },
+  });
+  check(
+    "the winner holds its own spaces only, never a mix from two bookings",
+    claimRows === 1 || claimRows === 2,
+    `${claimRows} claim rows`,
+  );
 
   await cleanup();
 

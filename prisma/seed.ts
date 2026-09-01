@@ -16,6 +16,7 @@ import { dateKeyToUtc, todayKey, addDaysToKey, weekdayOf } from "../lib/time";
 const prisma = new PrismaClient();
 
 const AMENITIES = [
+  { key: "projector", label: "Ceiling projector and screen", category: "av" },
   { key: "tv", label: "Wall-mounted TV", category: "av" },
   { key: "dual-tv", label: "Two TVs", category: "av" },
   { key: "mobile-tv", label: "Two TVs on wheels", category: "av" },
@@ -41,6 +42,11 @@ type SeedRoom = {
   name: string;
   type: RoomType;
   capacity: number;
+  maxOccupancy?: number;
+  building?: string;
+  /// Physical spaces this listing occupies. Defaults to [slug] — only the
+  /// divisible C165 listings need more than one.
+  spaces?: string[];
   widthFt: number;
   lengthFt: number;
   summary: string;
@@ -67,8 +73,21 @@ const ROOMS: SeedRoom[] = [
       "Reserving the commons takes the whole central floor of the JAG-Ed Center, including the circulation space around the meeting pods. It suits poster sessions, receptions, orientations and design reviews. Because a commons booking affects access to the surrounding rooms, requests are reviewed by center staff before they are confirmed.",
     amenities: [],
     images: [
-      { url: "/rooms/jag-ed-center-1.jpg", alt: "The JAG-Ed Center commons", kind: "PHOTO" },
-      { url: "/rooms/jag-ed-center-2.jpg", alt: "Seating in the JAG-Ed Center commons", kind: "PHOTO" },
+      {
+        url: "/rooms/jag-ed-center-1.jpg",
+        alt: "The open commons floor, with study seating in the foreground and the meeting room doors along the far wall",
+        kind: "PHOTO",
+      },
+      {
+        url: "/rooms/jag-ed-center-3.jpg",
+        alt: "A wide view down the length of the commons, past the flags toward the glass-walled rooms at the far end",
+        kind: "PHOTO",
+      },
+      {
+        url: "/rooms/jag-ed-center-2.jpg",
+        alt: "Computer workstations along the commons, looking out through the glass wall to the courtyard",
+        kind: "PHOTO",
+      },
       { url: "/plans/jag-ed-center.png", alt: "Floor plan with the commons highlighted", kind: "PLAN" },
     ],
     planKey: "commons",
@@ -195,7 +214,11 @@ const ROOMS: SeedRoom[] = [
       "mac",
     ],
     images: [
-      { url: "/rooms/b153.jpg", alt: "Room B153 set up as a classroom", kind: "PHOTO" },
+      {
+        url: "/rooms/b153.jpg",
+        alt: "Room B153 with its wheeled tables set in a U-shape, whiteboard on the right",
+        kind: "PHOTO",
+      },
       { url: "/plans/b153.png", alt: "Floor plan with B153 highlighted", kind: "PLAN" },
     ],
     planKey: "b153",
@@ -222,7 +245,14 @@ const ROOMS: SeedRoom[] = [
       "keyboard-mouse",
       "mac",
     ],
-    images: [{ url: "/plans/b154.png", alt: "Floor plan with B154 highlighted", kind: "PLAN" }],
+    images: [
+      {
+        url: "/rooms/b154.jpg",
+        alt: "Room B154 with its tables set in a U-shape facing the wall display",
+        kind: "PHOTO",
+      },
+      { url: "/plans/b154.png", alt: "Floor plan with B154 highlighted", kind: "PLAN" },
+    ],
     planKey: "b154",
     sortOrder: 60,
   },
@@ -253,6 +283,97 @@ const ROOMS: SeedRoom[] = [
     ],
     planKey: "b155",
     sortOrder: 70,
+  },
+  {
+    slug: "c165a",
+    number: "C165a",
+    name: "Room C165a",
+    type: "CONFERENCE",
+    building: "ATB C State Building",
+    capacity: 18,
+    maxOccupancy: 45,
+    widthFt: 28,
+    lengthFt: 24,
+    summary: "Zoom-capable classroom with a projector, along the ATB C wing.",
+    description:
+      "A 28-by-24 classroom at the east end of the corridor, in the ATB C State Building rather than the JAG-Ed Center itself. Six tables and 18 chairs face a projector screen, with a camera and PC for Zoom sessions. Posted occupancy is 45, so it takes a larger standing audience than the seated count suggests.",
+    amenities: [
+      "classroom",
+      "zoom",
+      "tables",
+      "projector",
+      "camera",
+      "camera-remote",
+      "keyboard-mouse",
+      "pc",
+    ],
+    images: [{ url: "/rooms/c165a.jpg", alt: "Room C165a set up in rows facing the projector screen", kind: "PHOTO" }],
+    planKey: "c165a",
+    sortOrder: 80,
+  },
+  {
+    slug: "c165b",
+    number: "C165b",
+    name: "Room C165b",
+    type: "CONFERENCE",
+    building: "ATB C State Building",
+    capacity: 18,
+    maxOccupancy: 45,
+    widthFt: 23,
+    lengthFt: 27,
+    summary: "Zoom-capable classroom with a projector and whiteboard.",
+    description:
+      "A 23-by-27 classroom in the ATB C State Building, next door to C165a. Six tables and 18 chairs face a projector screen, with a whiteboard on the side wall and a camera and PC for Zoom. Posted occupancy is 45.",
+    amenities: [
+      "classroom",
+      "zoom",
+      "tables",
+      "projector",
+      "camera",
+      "camera-remote",
+      "keyboard-mouse",
+      "whiteboard",
+      "pc",
+    ],
+    images: [{ url: "/rooms/c165b.jpg", alt: "Room C165b set up in rows facing the projector screen", kind: "PHOTO" }],
+    planKey: "c165b",
+    sortOrder: 90,
+  },
+  {
+    slug: "c165a-b",
+    number: "C165a+b",
+    name: "Room C165 (both halves)",
+    type: "ADAPTABLE",
+    building: "ATB C State Building",
+    capacity: 36,
+    maxOccupancy: 90,
+    // No width/length: the two halves sit side by side, so the combined
+    // footprint is not a simple rectangle. Roughly 1,290 sq ft in total.
+    widthFt: undefined as unknown as number,
+    lengthFt: undefined as unknown as number,
+    spaces: ["c165a", "c165b"],
+    summary: "C165a and C165b with the partition opened — the largest room on offer.",
+    description:
+      "C165 is one room divided by a movable partition wall. Opened up it seats 36 at twelve tables with a posted occupancy of 90, roughly 1,290 square feet, and has a projector at each end. Because opening the partition takes staff time, requests for the combined space are reviewed before they are confirmed. Reserving it holds both halves, so C165a and C165b cannot be booked separately at the same time.",
+    amenities: [
+      "classroom",
+      "zoom",
+      "tables",
+      "projector",
+      "camera",
+      "camera-remote",
+      "keyboard-mouse",
+      "whiteboard",
+      "pc",
+    ],
+    images: [
+      { url: "/rooms/c165a.jpg", alt: "The C165a half, set up in rows facing the projector screen", kind: "PHOTO" },
+      { url: "/rooms/c165b.jpg", alt: "The C165b half, set up in rows facing the projector screen", kind: "PHOTO" },
+    ],
+    planKey: "c165a",
+    sortOrder: 100,
+    needsApproval: true,
+    maxMinutes: 480,
   },
 ];
 
@@ -291,9 +412,24 @@ async function main() {
     });
   }
 
+  console.log("Seeding physical spaces…");
+  const spaceKeys = new Set<string>();
+  for (const room of ROOMS) {
+    for (const key of room.spaces ?? [room.slug]) spaceKeys.add(key);
+  }
+  for (const key of spaceKeys) {
+    const owner = ROOMS.find((r) => (r.spaces ?? [r.slug]).length === 1 && r.slug === key);
+    await prisma.space.upsert({
+      where: { key },
+      update: { label: owner?.name ?? key },
+      create: { key, label: owner?.name ?? key },
+    });
+  }
+
   console.log("Seeding rooms…");
   for (const room of ROOMS) {
-    const { amenities, images, ...fields } = room;
+    const { amenities, images, spaces, ...fields } = room;
+    const spaceList = spaces ?? [room.slug];
     const saved = await prisma.room.upsert({
       where: { slug: room.slug },
       update: {
@@ -304,6 +440,16 @@ async function main() {
         ...fields,
         amenities: { connect: amenities.map((key) => ({ key })) },
       },
+    });
+
+    await prisma.roomSpace.deleteMany({ where: { roomId: saved.id } });
+    await prisma.roomSpace.createMany({
+      data: await Promise.all(
+        spaceList.map(async (key) => ({
+          roomId: saved.id,
+          spaceId: (await prisma.space.findUniqueOrThrow({ where: { key } })).id,
+        })),
+      ),
     });
 
     await prisma.roomImage.deleteMany({ where: { roomId: saved.id } });
@@ -321,6 +467,7 @@ async function main() {
     const startsAt = dateKeyToUtc(dateKey, demo.startMinute);
     const endsAt = dateKeyToUtc(dateKey, demo.startMinute + demo.minutes);
     const [name, email] = demo.who;
+    const roomSpaces = await prisma.roomSpace.findMany({ where: { roomId: room.id } });
     await prisma.booking.create({
       data: {
         roomId: room.id,
@@ -332,6 +479,9 @@ async function main() {
         requesterName: name,
         requesterEmail: email,
         department: "College of Engineering",
+        spaces: {
+          create: roomSpaces.map((rs) => ({ spaceId: rs.spaceId, startsAt, endsAt })),
+        },
       },
     });
   }

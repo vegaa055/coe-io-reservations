@@ -1,5 +1,5 @@
 {
-  "name": "vibe-venue",
+  "name": "coe-io-reservations",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -16,7 +16,9 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "verify:overlap": "tsx scripts/verify-overlap.ts"
+    "verify:overlap": "tsx scripts/verify-overlap.ts",
+    "photos": "node scripts/prepare-photos.mjs",
+    "logo": "node scripts/make-logo-variants.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -36,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "prisma": "^6.19.1",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4",
     "tsx": "^4.20.6",
     "typescript": "^5"
