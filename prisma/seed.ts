@@ -402,7 +402,25 @@ function nextOpenDayKey(offset: number): string {
   return key;
 }
 
+/** Host and database name, so it is always obvious what is being written to. */
+function describeTarget(): string {
+  const url = process.env.DATABASE_URL ?? "";
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname}`;
+  } catch {
+    return "(unreadable DATABASE_URL)";
+  }
+}
+
 async function main() {
+  // Seeding is normally run from a laptop, where .env points at localhost but
+  // an inline DATABASE_URL points at production. Say which one won.
+  const target = describeTarget();
+  const isLocal = /^(localhost|127\.0\.0\.1)/.test(target);
+  console.log(`Seeding ${target}${isLocal ? "" : "  <-- NOT localhost"}`);
+  console.log("");
+
   console.log("Seeding amenities…");
   for (const amenity of AMENITIES) {
     await prisma.amenity.upsert({
