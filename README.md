@@ -392,9 +392,13 @@ elements it recoloured, and the polygon/path rule is specific to this artwork.
 1. Push this repository to GitHub and import it into Vercel.
 2. Provision Postgres (Vercel Postgres, Neon and Supabase all support `btree_gist`).
 3. Set environment variables:
-   - `DATABASE_URL` — the **pooled** connection string.
-   - `DIRECT_URL` — the direct one. Migrations cannot run through a pgbouncer pool. Add
-     `directUrl = env("DIRECT_URL")` to the `datasource` block when you add this.
+   - `DATABASE_URL` — the **pooled** connection string. From Neon, use
+     `POSTGRES_PRISMA_URL` (it already carries `pgbouncer=true`), or `DATABASE_URL` with
+     `?pgbouncer=true` appended.
+   - `DIRECT_URL` — the **unpooled** one. Neon calls this `DATABASE_URL_UNPOOLED`
+     (`POSTGRES_URL_NON_POOLING` is the same value). The pooled host contains `-pooler`;
+     the direct host does not. Migrations need the direct connection because they take
+     session-level advisory locks a transaction pooler cannot hold.
    - `ADMIN_EMAILS` — comma-separated, who sees `/staff`.
    - `ALLOWED_EMAIL_DOMAINS` — optional. Set to `arizona.edu` for the internal-tool phase to
      reject non-campus addresses; leave empty when you open to the public.
