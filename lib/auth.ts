@@ -1,64 +1,103 @@
 /**
- * PROTOTYPE IDENTITY SHIM.
+ * Who you are, and what you may do.
  *
- * There is no real authentication yet: the visitor types a name + campus email
- * and we keep it in a cookie so the booking form is pre-filled and "My
- * reservations" can find their bookings. It is a convenience, not a security
- * boundary — anyone can type any email.
+ *   Identity      -> auth.ts (NetID via Microsoft Entra ID, or the development
+ *                    sign-in form when the campus app registration is not set
+ *                    up yet).
+ *   Authorisation -> the staff_members table, read here.
  *
- * Replacing this with real auth should touch only this file plus the sign-in
- * route. For UA the path is NetID via Entra ID / Shibboleth SAML: add NextAuth
- * with a `microsoft-entra-id` (or SAML) provider, make `getViewer()` read the
- * session, and derive `isStaff` from a group claim instead of ADMIN_EMAILS.
- *
- * Until that lands, keep every staff-only page calling `requireStaff()` so the
- * swap is a single-file change.
+ * The two are kept apart deliberately. Roles are keyed by email address, so
+ * they survived the move off the old typed-in identity cookie without any data
+ * change, and would survive another move to Shibboleth the same way.
  */
-import { cookies } from "next/headers";
+import { auth, REAL_SIGN_IN_CONFIGURED } from "@/auth";
 
-export const IDENTITY_COOKIE = "venue_identity";
+import { prisma } from "./prisma";
+
+export type Role = "ADMIN" | "STAFF";
 
 export type Viewer = {
   name: string;
   email: string;
   department: string | null;
+  /** null when this person has no granted access. */
+  role: Role | null;
+  /** Staff or admin — may act on reservations. */
   isStaff: boolean;
+  /** Admin — may also edit rooms and grant access. */
+  isAdmin: boolean;
 };
 
-function staffEmails(): string[] {
+/**
+ * Bootstrap admins from the environment. These are always admins, whether or
+ * not they have a row, so the panel that grants access can never lock everyone
+ * out — including after a database reset.
+ */
+export function bootstrapAdminEmails(): string[] {
   return (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 }
 
-export function isStaffEmail(email: string): boolean {
-  return staffEmails().includes(email.trim().toLowerCase());
+export function isBootstrapAdmin(email: string): boolean {
+  return bootstrapAdminEmails().includes(email.trim().toLowerCase());
+}
+
+/** The signed-in person, straight from the session. */
+async function currentIdentity(): Promise<{ name: string; email: string } | null> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return null;
+  return { name: session.user?.name || email, email: email.toLowerCase() };
+}
+
+/** Granted role for an email, with the environment bootstrap applied. */
+export async function roleFor(email: string): Promise<Role | null> {
+  const normalised = email.trim().toLowerCase();
+  if (isBootstrapAdmin(normalised)) return "ADMIN";
+  const member = await prisma.staffMember.findUnique({
+    where: { email: normalised },
+    select: { role: true },
+  });
+  return member?.role ?? null;
 }
 
 export async function getViewer(): Promise<Viewer | null> {
-  const raw = (await cookies()).get(IDENTITY_COOKIE)?.value;
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(decodeURIComponent(raw)) as {
-      name?: string;
-      email?: string;
-      department?: string;
-    };
-    if (!parsed.email || !parsed.name) return null;
-    return {
-      name: parsed.name,
-      email: parsed.email,
-      department: parsed.department || null,
-      isStaff: isStaffEmail(parsed.email),
-    };
-  } catch {
-    return null;
-  }
+  const identity = await currentIdentity();
+  if (!identity) return null;
+
+  const role = await roleFor(identity.email);
+  return {
+    ...identity,
+    // Not part of a NetID token; the booking form collects it when it matters.
+    department: null,
+    role,
+    isStaff: role === "STAFF" || role === "ADMIN",
+    isAdmin: role === "ADMIN",
+  };
 }
 
-/** True when the current visitor may see and act on every reservation. */
+/** The viewer if they may act on reservations, otherwise null. */
 export async function requireStaff(): Promise<Viewer | null> {
   const viewer = await getViewer();
   return viewer?.isStaff ? viewer : null;
+}
+
+/** The viewer if they may edit rooms and grant access, otherwise null. */
+export async function requireAdmin(): Promise<Viewer | null> {
+  const viewer = await getViewer();
+  return viewer?.isAdmin ? viewer : null;
+}
+
+/**
+ * The admin panel is refused in production unless a real identity provider is
+ * configured. The old ALLOW_INSECURE_ADMIN escape hatch is gone: it existed
+ * only because identity used to be a cookie anyone could type, and keeping it
+ * would leave a way to turn that back on by accident.
+ */
+export function panelBlockedReason(): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  if (REAL_SIGN_IN_CONFIGURED) return null;
+  return "The admin panel is disabled because NetID sign-in is not configured on this deployment. Set the AUTH_MICROSOFT_ENTRA_ID_* variables.";
 }

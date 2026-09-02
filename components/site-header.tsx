@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { clearIdentityAction } from "@/app/actions";
+import { signOut } from "@/auth";
 import { getViewer } from "@/lib/auth";
 
 export async function SiteHeader() {
@@ -51,25 +51,45 @@ export async function SiteHeader() {
               href="/staff"
               className="rounded-md px-3 py-2 text-muted transition-colors hover:bg-sunken hover:text-ink"
             >
-              Staff
+              Reservations
+            </Link>
+          )}
+          {viewer?.isAdmin && (
+            <Link
+              href="/admin/rooms"
+              className="rounded-md px-3 py-2 text-muted transition-colors hover:bg-sunken hover:text-ink"
+            >
+              Admin
             </Link>
           )}
         </nav>
 
-        {viewer && (
+        {viewer ? (
           <div className="flex items-center gap-2 rounded-full border border-line bg-raised py-1 pl-3 pr-1 text-xs">
             <span className="max-w-40 truncate text-muted" title={viewer.email}>
               {viewer.name}
             </span>
-            <form action={clearIdentityAction}>
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/" });
+              }}
+            >
               <button
                 type="submit"
                 className="rounded-full px-2 py-1 text-faint transition-colors hover:bg-sunken hover:text-ink"
               >
-                Not you?
+                Sign out
               </button>
             </form>
           </div>
+        ) : (
+          <Link
+            href="/signin"
+            className="rounded-full border border-line px-3 py-1.5 text-xs text-muted transition-colors hover:bg-sunken hover:text-ink"
+          >
+            Sign in
+          </Link>
         )}
       </div>
     </header>

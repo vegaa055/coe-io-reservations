@@ -24,6 +24,13 @@ const nextConfig: NextConfig = {
       once.
     */
     minimumCacheTTL: 3600,
+
+    /*
+      Uploaded photos live on Vercel Blob, which serves them from a
+      per-store subdomain of blob.vercel-storage.com. next/image refuses
+      remote hosts unless they are listed here.
+    */
+    remotePatterns: [{ protocol: "https", hostname: "**.public.blob.vercel-storage.com" }],
   },
 };
 

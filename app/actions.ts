@@ -1,16 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 
-import { IDENTITY_COOKIE, requireStaff } from "@/lib/auth";
-import { cancelBooking, createBooking, isOverlapViolation } from "@/lib/bookings";
+import { getViewer, requireStaff } from "@/lib/auth";
+import {
+  bookingRequiresSignIn,
+  cancelBooking,
+  createBooking,
+  isOverlapViolation,
+} from "@/lib/bookings";
 import { prisma } from "@/lib/prisma";
 import {
   bookingInputSchema,
   cancelInputSchema,
   fieldErrors,
-  identitySchema,
   staffActionSchema,
 } from "@/lib/validation";
 
@@ -62,26 +65,31 @@ export async function createBookingAction(
     };
   }
 
-  const result = await createBooking(parsed.data);
+  const viewer = await getViewer();
+
+  // The real gate. The panel hides the form when sign-in is required, but the
+  // action is what a request actually goes through.
+  if (!viewer && bookingRequiresSignIn()) {
+    return {
+      status: "error",
+      message: "Sign in with your NetID to reserve a room.",
+    };
+  }
+
+  // A signed-in booking is made *as* that person: the session wins over
+  // whatever the form posted, so staff can trust the requester on a
+  // reservation.
+  const input = viewer
+    ? { ...parsed.data, requesterName: viewer.name, requesterEmail: viewer.email }
+    : parsed.data;
+
+  const result = await createBooking(input);
   if (!result.ok) {
     return { status: "error", message: result.message };
   }
 
-  // Remember who this is so the next booking is pre-filled.
-  (await cookies()).set(
-    IDENTITY_COOKIE,
-    encodeURIComponent(
-      JSON.stringify({
-        name: parsed.data.requesterName,
-        email: parsed.data.requesterEmail,
-        department: parsed.data.department || "",
-      }),
-    ),
-    { httpOnly: false, sameSite: "lax", maxAge: 60 * 60 * 24 * 180, path: "/" },
-  );
-
-  const room = await prisma.room.findUnique({ where: { slug: parsed.data.roomSlug } });
-  revalidatePath(`/rooms/${parsed.data.roomSlug}`);
+  const room = await prisma.room.findUnique({ where: { slug: input.roomSlug } });
+  revalidatePath(`/rooms/${input.roomSlug}`);
   revalidatePath("/");
 
   return {
@@ -183,33 +191,4 @@ export async function staffBookingAction(
           ? "Request denied."
           : "Reservation cancelled.",
   };
-}
-
-export async function setIdentityAction(
-  _prev: SimpleState,
-  formData: FormData,
-): Promise<SimpleState> {
-  const parsed = identitySchema.safeParse({
-    name: str(formData.get("name")),
-    email: str(formData.get("email")),
-    department: str(formData.get("department")),
-  });
-  if (!parsed.success) {
-    return { status: "error", message: "Enter your name and a valid email address." };
-  }
-
-  (await cookies()).set(IDENTITY_COOKIE, encodeURIComponent(JSON.stringify(parsed.data)), {
-    httpOnly: false,
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 180,
-    path: "/",
-  });
-
-  revalidatePath("/", "layout");
-  return { status: "success", message: `Signed in as ${parsed.data.name}.` };
-}
-
-export async function clearIdentityAction(): Promise<void> {
-  (await cookies()).delete(IDENTITY_COOKIE);
-  revalidatePath("/", "layout");
 }

@@ -426,10 +426,25 @@ async function main() {
     });
   }
 
-  console.log("Seeding rooms…");
+  // Once the admin panel is in use the database is the source of truth, not
+  // this file. Re-seeding therefore leaves existing rooms completely alone —
+  // fields, amenities and photos — so an edit or an uploaded photo is never
+  // silently reverted. SEED_RESET=1 restores the original transcription.
+  const reset = process.env.SEED_RESET === "1";
+  console.log(reset ? "Seeding rooms (SEED_RESET: overwriting)…" : "Seeding rooms…");
+
   for (const room of ROOMS) {
     const { amenities, images, spaces, ...fields } = room;
     const spaceList = spaces ?? [room.slug];
+
+    const existing = await prisma.room.findUnique({
+      where: { slug: room.slug },
+      select: { id: true },
+    });
+    if (existing && !reset) {
+      console.log(`  kept ${room.number} (already exists)`);
+      continue;
+    }
     const saved = await prisma.room.upsert({
       where: { slug: room.slug },
       update: {

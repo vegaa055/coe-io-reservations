@@ -9,6 +9,7 @@ import { Gallery } from "@/components/gallery";
 import { LiveStatusPill } from "@/components/status-pill";
 import { getViewer } from "@/lib/auth";
 import { buildDaySchedule } from "@/lib/availability";
+import { bookingRequiresSignIn } from "@/lib/bookings";
 import {
   getDayIntervals,
   getOverlappingRooms,
@@ -235,6 +236,7 @@ export default async function RoomPage({
             schedule={schedule}
             dayBookings={dayBookings}
             viewer={viewer}
+            requireSignIn={bookingRequiresSignIn()}
           />
         </div>
       </div>

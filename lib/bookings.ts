@@ -60,6 +60,21 @@ function isTransient(error: unknown): boolean {
   );
 }
 
+/**
+ * Whether a reservation requires a signed-in NetID.
+ *
+ * Defaults to *required*. An access control should fail closed: forgetting to
+ * set this on a deployment leaves booking locked down, which is a support
+ * question, rather than silently open to the internet. Set
+ * REQUIRE_SIGN_IN_TO_BOOK=0 when the service opens to the public.
+ *
+ * Enforcement lives in createBookingAction, not here — that is the request
+ * boundary, and it is the only place with access to the session.
+ */
+export function bookingRequiresSignIn(): boolean {
+  return process.env.REQUIRE_SIGN_IN_TO_BOOK !== "0";
+}
+
 function allowedDomains(): string[] {
   return (process.env.ALLOWED_EMAIL_DOMAINS || "")
     .split(",")

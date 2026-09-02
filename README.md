@@ -36,6 +36,7 @@ listings, and serves <http://localhost:3000>.
 | `npm run db:studio` | Prisma Studio — the admin UI for closures and room policy |
 | `npm run photos` | Resize new photos from `img/` into `public/rooms/` |
 | `npm run logo` | Regenerate the header logo's light and dark copies |
+| `SEED_RESET=1 npm run db:seed` | Overwrite existing rooms with the seed file |
 | `npm run verify:overlap` | The double-booking test suite (below) |
 | `npm run typecheck` / `lint` | Types and lint |
 
@@ -132,8 +133,11 @@ database — but not against production.
 ## How it is put together
 
 ```
+auth.ts                    NetID (Entra ID) sign-in configuration
 app/
   page.tsx                 Room list, filters, interactive floor plan
+  signin/                  Sign-in page
+  admin/                   Rooms, photos and access — admins only
   rooms/[slug]/page.tsx    Room detail, availability, booking
   reservations/page.tsx    Look up and cancel your own reservations
   staff/page.tsx           Approve / deny / cancel — gated by ADMIN_EMAILS
@@ -146,7 +150,8 @@ lib/
   time.ts                  The only place local wall time ↔ UTC conversion happens
   availability.ts          Slot generation; pure, no database
   bookings.ts              Booking rules + conflict handling
-  auth.ts                  Prototype identity shim — replace this with SSO
+  auth.ts                  Reads the session, applies roles from staff_members
+  storage.ts               Where uploaded photos go (Vercel Blob / local disk)
 prisma/
   schema.prisma            Room, Space, Booking, BookingSpace, Amenity, RoomImage, Closure
   seed.ts                  The eleven listings, transcribed from the handouts
@@ -257,6 +262,100 @@ url is a new cache key and takes effect at once.
 Floor plans are separate: the per-room highlight PNGs live in `public/plans/` and are copied by
 hand, because the interactive plan is generated from `img/map.png` by
 `scripts/trace_floor_plan.py` rather than from those images.
+
+---
+
+## Access, roles and the admin panel
+
+Two roles, stored in the `staff_members` table and managed from the panel:
+
+| | Can do |
+| --- | --- |
+| **Staff** | Approve, deny and cancel reservations (`/staff`) |
+| **Admin** | All of that, plus edit rooms, manage photos, add rooms, and grant or revoke access (`/admin`) |
+
+`ADMIN_EMAILS` is now a **bootstrap, not the list**. Addresses in it are always admins whether or
+not they have a row, so it is not possible to lock everyone out of the panel that grants access —
+including after a database reset. Everyone else is added in the panel, which records who granted
+what. The panel refuses to remove an environment admin, to remove your own access, or to remove the
+last remaining admin.
+
+### NetID sign-in
+
+Identity comes from **UA NetID via Microsoft Entra ID** (OIDC), configured in `auth.ts`. Roles stay
+in `staff_members` and are read by `lib/auth.ts` — authentication says who you are, authorisation
+says what you may do, and the two are deliberately separate. Because roles are keyed by email they
+survived the move off the old typed-in identity cookie with no data change, and would survive a
+move to Shibboleth the same way.
+
+**What to request from UITS.** An app registration in the University of Arizona Entra tenant, with:
+
+- **Redirect URI** — `https://<your-domain>/api/auth/callback/microsoft-entra-id`
+  (and `http://localhost:3000/api/auth/callback/microsoft-entra-id` for development)
+- **Scopes** — `openid profile email`. Nothing else is used.
+- **Token type** — ID token from the v2.0 endpoint.
+
+They will give you an Application (client) ID, a client secret, and the Directory (tenant) ID. Put
+them in `.env` locally and in the Vercel project settings for the deployment:
+
+```
+AUTH_MICROSOFT_ENTRA_ID_ID=<application (client) id>
+AUTH_MICROSOFT_ENTRA_ID_SECRET=<client secret>
+AUTH_MICROSOFT_ENTRA_ID_ISSUER=https://login.microsoftonline.com/<tenant id>/v2.0
+```
+
+**The issuer is not optional.** Left unset, the provider defaults to Microsoft's `common`
+endpoint, which would let anyone with any Microsoft account — a personal Outlook address included
+— complete a sign-in and appear as a legitimate user. Pinning it to the university tenant is what
+makes this *NetID* sign-in rather than *Microsoft* sign-in. `ALLOWED_EMAIL_DOMAINS` is applied as a
+second gate, for guest accounts invited into the tenant with outside addresses.
+
+`AUTH_SECRET` signs the session cookie and must be set in every environment. Generate one with
+`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
+
+**Until the registration exists**, a development sign-in form stands in: type any name and email.
+`auth.ts` only registers that provider when Entra is unconfigured *and* `NODE_ENV` is not
+production, so it cannot be reached on a deployment. The admin panel refuses to run in production
+until Entra is configured.
+
+**Booking requires a NetID during the internal rollout**, controlled by
+`REQUIRE_SIGN_IN_TO_BOOK`. It defaults to *required*: an access control should fail closed, so a
+missing value on a deployment leaves booking locked rather than silently open. Set it to `0` when
+the service opens to the public.
+
+Availability stays browsable to everyone either way — only the reservation form is gated, so people
+can still see what is free before signing in. Existing reservations can still be cancelled from
+their confirmation link without an account.
+
+Enforcement is in `createBookingAction`, not the component: hiding the form is a courtesy, and the
+action is what a request actually goes through. Verified by capturing a real server-action request
+while signed in, signing out, and replaying it — the replay is refused and writes nothing.
+
+A signed-in reservation is made *as* that person: the session overrides whatever the form posts, so
+staff can trust the requester name on a booking. `/reservations` and the staff and admin tools all
+require a session.
+
+### Photo uploads
+
+Uploads go to Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set, and otherwise fall back to writing
+into `public/rooms/` so the panel is usable locally before anyone creates a store. The local driver
+**refuses to run in production** rather than appearing to work — Vercel's filesystem is read-only,
+so a write there either throws or lands on an instance that is about to vanish. The panel says
+which driver is in use. Swapping in S3 or R2 means writing one more driver in `lib/storage.ts`.
+
+### Re-seeding is now non-destructive
+
+Once the panel is in use the database is the source of truth, not `prisma/seed.ts`. Re-seeding
+therefore **skips rooms that already exist** — fields, amenities and photos are all left alone, so
+an edit or an uploaded photo is never silently reverted. `SEED_RESET=1 npm run db:seed` restores the
+original transcription.
+
+### Adding a room
+
+A new room is created with its own physical space, so it participates in the no-double-booking
+guarantee immediately. Two things it does *not* do automatically: it will not appear on the floor
+plan until its outline is traced into the plan geometry, and if it is really one half of a
+divisible space like C165 the space mapping has to be set up by hand.
 
 ---
 

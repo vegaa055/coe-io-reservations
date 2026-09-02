@@ -19,9 +19,8 @@ export default async function StaffPage() {
       <div className="mx-auto max-w-xl rounded-xl border border-line bg-raised p-8">
         <h1 className="text-2xl font-semibold tracking-tight">Staff only</h1>
         <p className="mt-2 leading-relaxed text-muted">
-          This page lists every reservation in the center. Access is currently granted by email
-          address through the <code className="rounded bg-sunken px-1 py-0.5">ADMIN_EMAILS</code>{" "}
-          setting — it will move to a NetID group once campus sign-in is connected.
+          This page lists every reservation in the center. An admin can grant you staff access from
+          the admin panel.
         </p>
         <Link href="/reservations" className="mt-4 inline-block text-sm text-brand hover:underline">
           Go to my reservations →

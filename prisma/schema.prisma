@@ -42,6 +42,39 @@ enum ImageKind {
   PLAN
 }
 
+/// STAFF can approve, deny and cancel reservations.
+/// ADMIN can do all of that plus edit rooms, manage images, and decide who else
+/// has access.
+enum Role {
+  ADMIN
+  STAFF
+}
+
+/// Someone granted access to the staff or admin tools.
+///
+/// Keyed by email because that is what survives the move to real sign-in: today
+/// the email comes from the prototype identity cookie, later it will come from
+/// a NetID session, and the rows here do not have to change.
+///
+/// ADMIN_EMAILS in the environment is a bootstrap, not a replacement — those
+/// addresses are always treated as admins even if absent here, so it is not
+/// possible to lock yourself out of the panel that grants access.
+model StaffMember {
+  id        String   @id @default(cuid())
+  /// Always stored lowercase.
+  email     String   @unique
+  name      String?
+  role      Role     @default(STAFF)
+  /// Email of the admin who granted this, for an audit trail.
+  addedBy   String?  @map("added_by")
+  note      String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([role])
+  @@map("staff_members")
+}
+
 model Room {
   id     String   @id @default(cuid())
   slug   String   @unique

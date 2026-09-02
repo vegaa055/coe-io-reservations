@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { CancelBooking } from "@/components/cancel-booking";
-import { IdentityForm } from "@/components/identity-form";
 import { BookingStatusPill } from "@/components/status-pill";
 import { getViewer } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -59,7 +58,21 @@ export default async function ReservationsPage({
     return (
       <div className="mx-auto flex max-w-md flex-col gap-6">
         <h1 className="text-3xl font-semibold tracking-tight">My reservations</h1>
-        <IdentityForm />
+        <p className="leading-relaxed text-muted">
+          Sign in with your NetID to see everything booked under your name.
+        </p>
+        <div>
+          <Link
+            href="/signin?next=/reservations"
+            className="inline-block rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand hover:bg-brand-hover"
+          >
+            Sign in
+          </Link>
+        </div>
+        <p className="text-sm leading-relaxed text-muted">
+          Booked without signing in? The confirmation link from that reservation still opens it,
+          and still cancels it.
+        </p>
       </div>
     );
   }
