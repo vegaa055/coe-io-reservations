@@ -21,7 +21,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  /// Pooled connection, used by the app at runtime.
   url      = env("DATABASE_URL")
+  /// Unpooled connection, used for migrations. Managed Postgres hands out a
+  /// pgbouncer URL by default, and migrations cannot run through a transaction
+  /// pooler — they need session-level access for advisory locks and DDL. Set
+  /// both to the same value for a plain local database.
+  directUrl = env("DIRECT_URL")
 }
 
 enum RoomType {

@@ -473,6 +473,20 @@ async function main() {
     });
   }
 
+  // Demo reservations are opt-in, not opt-out. Seeding production is the only
+  // way to get the rooms in, and NODE_ENV is not "production" when the seed is
+  // run from a laptop against a production database — so anything that defaults
+  // to on would put ten fake @example.edu bookings in front of real users.
+  if (process.env.SEED_DEMO_BOOKINGS !== "1") {
+    console.log("Skipping demo reservations (set SEED_DEMO_BOOKINGS=1 to add them).");
+    const [roomCount, bookingCount] = await Promise.all([
+      prisma.room.count(),
+      prisma.booking.count(),
+    ]);
+    console.log(`Done — ${roomCount} rooms, ${bookingCount} reservations.`);
+    return;
+  }
+
   console.log("Seeding demo reservations…");
   await prisma.booking.deleteMany({ where: { requesterEmail: { endsWith: "@example.edu" } } });
   for (const demo of DEMO_BOOKINGS) {
